@@ -32,82 +32,91 @@ app.get('/clone', function (req, res, next) {
   res.sendFile(__dirname + '/index.html');
 });
 
-app.post('/clone', function (req, res, next) {
-  createClone(req.body.url, (data) => {
-    io.emit(req.body.topic, `${data}`);
-  }, (absolutePath) => {
-    installPackages(absolutePath, (data) => {
-      io.emit(req.body.topic, `${data}`);
-    }, (absolutePath) => {
-      if(fs.existsSync(`${absolutePath}/build`)) {
-        executeDeploy(absolutePath, (data) => {
-          io.emit(req.body.topic, `${data}`);
-        })
-      } else {
-        executeBuild(absolutePath,(data) => {
-          io.emit(req.body.topic, `${data}`);
-        }, (absolutePath) => {
-          executeDeploy(absolutePath, (data) => {
-            io.emit(req.body.topic, `${data}`);
-          })
-        });
-      }
-    });
-  });
+app.post('/clone', async function (req, res, next) {
+  const splitUrl =  req.body.url.split('/');
+  const folderName = splitUrl[splitUrl.length - 1].split('.')[0];
+  console.log(folderName);
+  
+  var userFolderPath =  `${directoryFullLatestCode}/${folderName}`;
+  const logsEmitter = logsEmitterFn(req.body.topic)
+  const code1 = await createClone(req.body.url, logsEmitter).catch(err => console.log(err));
+  const code2 = await installPackages(userFolderPath, logsEmitter);
+  if(fs.existsSync(`${userFolderPath}/build`)) {
+    const code3 = await executeDeploy(userFolderPath, logsEmitter)
+  } else {
+    const code4 = await executeBuild(userFolderPath, logsEmitter);
+    const code5 = await executeDeploy(userFolderPath, logsEmitter)
+  }
   res.sendFile(__dirname + '/index.html');
 });
 
-function createClone(url,callbackFn, callbackFn2) 
+const logsEmitterFn = (topic) => {
+  return (data) => {
+    io.emit(topic, `${data}`);
+  }
+}
+function createClone(url,callbackFn) 
 {
-  createDir();
+  return new Promise((resolve, reject) => {
 
-  const gitClone = spawn('git',['-C',directoryFullLatestCode,'clone',url]);
+    createDir();
+    
+    const gitClone = spawn('git',['-C',directoryFullLatestCode,'clone',url]);
 
-  const splitUrl =  url.split('/');
-  const folderName = splitUrl[splitUrl.length - 1].split('.')[0];
-  console.log(folderName);
- 
-  var userFolderPath =  `${directoryFullLatestCode}/${folderName}`
-  gitClone.stdout.on("data", data => {
-    callbackFn(`${data}`);
-    console.log(`${data}`);
-  });
-  gitClone.stderr.on("data", data => {
-    callbackFn(`${data}`);
-    console.log(`${data}`);
-  });
-  gitClone.on('error', (error) => {
-    callbackFn(`${error.message}`);
-    console.log(`error: ${error.message}`);
-  });
-  gitClone.on("close", code => {
-    callbackFn(`${code}`);
-    callbackFn2(userFolderPath);
-    console.log(`child process exited with code ${code}`);
-  });
+    gitClone.stdout.on("data", data => {
+      callbackFn(`${data}`);
+      console.log(`${data}`);
+    });
 
+    gitClone.stderr.on("data", data => {
+      callbackFn(`${data}`);
+      console.log(`${data}`);
+    });
+    
+    gitClone.on('error', (error) => {
+      callbackFn(`${error.message}`);
+      console.log(`error: ${error.message}`);
+    });
+    
+    gitClone.on("close", code => {
+      callbackFn(`${code}`);
+      resolve(`${code}`);
+      console.log(`child process exited with code ${code}`);
+    });
+
+  })
 }
 
-function installPackages(path, callbackFn,callbackFn2) 
+function installPackages(path, callbackFn) 
 {
-  const buildAppSpawn = spawn('yarn', ['--cwd',path]);
-  buildAppSpawn.stdout.on("data", data => {
-    callbackFn(`${data}`);
-    console.log(`${data}`);
-  });
-  buildAppSpawn.stderr.on("data", data => {
-    callbackFn(`${data}`);
-    console.log(`${data}`);
-  });
-  buildAppSpawn.on('error', (error) => {
-    callbackFn(`${error.message}`);
-    console.log(`error: ${error.message}`);
-  });
-  buildAppSpawn.on("close", code => {
-    callbackFn(`${code}`);
-    callbackFn2(path);
-    console.log(`child process exited with code ${code}`);
-  });
+  return new Promise((resolve, reject) => {
+
+    console.log('Installing',path);
+    
+    const buildAppSpawn = spawn('npm', ['install','-C',path]);
+
+    buildAppSpawn.stdout.on("data", data => {
+      callbackFn(`${data}`);
+      console.log(`${data}`);
+    });
+
+    buildAppSpawn.stderr.on("data", data => {
+      callbackFn(`${data}`);
+      console.log(`${data}`);
+    });
+    
+    buildAppSpawn.on('error', (error) => {
+      callbackFn(`${error.message}`);
+      console.log(`error: ${error.message}`);
+    });
+    
+    buildAppSpawn.on("close", code => {
+      callbackFn(`${code}`);
+      resolve(`${code}`);
+      console.log(`child process exited with code ${code}`);
+    });
+
+  })
 
 }
 
@@ -125,56 +134,68 @@ function createDir(path,callbackFn) {
  
 }
 
-function executeBuild(path,callbackFn, callbackFn2)
+function executeBuild(path, callbackFn)
 {
-  var packageJson = fs.readFileSync(`${path}/package.json`);
-  const packageJsonModified = JSON.stringify({...JSON.parse(`${packageJson}`), homepage: "./"});
-  fs.writeFileSync(`${path}/package.json`, packageJsonModified)
-  const arweaveCom = spawn("yarn", ["--cwd", path, "build"]);
+  return new Promise((resolve, reject) => {
 
-  arweaveCom.stdout.on("data", data => {
-    callbackFn(`${data}`);
-    console.log(`${data}`);
-  });
-  arweaveCom.stderr.on("data", data => {
-    callbackFn(`${data}`);
-    console.log(`${data}`);
-  });
-  arweaveCom.on('error', (error) => {
-    callbackFn(`${error.message}`);
-    console.log(`error: ${error.message}`);
-  });
-  arweaveCom.on("close", code => {
-    callbackFn(`${code}`);
-    callbackFn2(path)
-    console.log(`child process exited with code ${code}`);
-  });
+    var packageJson = fs.readFileSync(`${path}/package.json`);
+    const packageJsonModified = JSON.stringify({...JSON.parse(`${packageJson}`), homepage: "./"});
+    fs.writeFileSync(`${path}/package.json`, packageJsonModified)
+    const arweaveCom = spawn("npm", ["run", "build", "-C", path, "build"]);
+
+    arweaveCom.stdout.on("data", data => {
+      callbackFn(`${data}`);
+      console.log(`${data}`);
+    });
+
+    arweaveCom.stderr.on("data", data => {
+      callbackFn(`${data}`);
+      console.log(`${data}`);
+    });
+    
+    arweaveCom.on('error', (error) => {
+      callbackFn(`${error.message}`);
+      console.log(`error: ${error.message}`);
+    });
+    
+    arweaveCom.on("close", code => {
+      callbackFn(`${code}`);
+      resolve(`${code}`)
+      console.log(`child process exited with code ${code}`);
+    });
+  })
+
 }
 
 function executeDeploy(path, callbackFn)
 {
-  const buildPath = `${path}/build`;
-  const arweaveCom = spawn("webdapparweave/arweave", ["deploy-dir", buildPath, "--key-file", "./arweavesecrets/arweave-keyfile-mglUufXx6iyx4xRmzXyXJlgr_B6oBWCPhpTqXymDrvA.json"]);
+  return new Promise((resolve, reject) => {
 
-  arweaveCom.stdout.on("data", data => {
-    callbackFn(`${data}`);
-    console.log(`stdout: ${data}`);
-  });
+    const buildPath = `${path}/build`;
+    const arweaveCom = spawn("webdapparweave/arweave", ["deploy-dir", buildPath, "--key-file", "./arweavesecrets/arweave-keyfile-mglUufXx6iyx4xRmzXyXJlgr_B6oBWCPhpTqXymDrvA.json"]);
 
-  arweaveCom.stderr.on("data", data => {
-    callbackFn(`${data}`);
-    console.log(`${data}`);
-  });
+    arweaveCom.stdout.on("data", data => {
+      callbackFn(`${data}`);
+      console.log(`stdout: ${data}`);
+    });
 
-  arweaveCom.on('error', (error) => {
-    callbackFn(`${error.message}`);
-    console.log(`error: ${error.message}`);
-  });
- 
-  arweaveCom.on("close", code => {
-    callbackFn(`${code}`);
-    console.log(`child process exited with code ${code}`);
-  });
+    arweaveCom.stderr.on("data", data => {
+      callbackFn(`${data}`);
+      console.log(`${data}`);
+    });
+
+    arweaveCom.on('error', (error) => {
+      callbackFn(`${error.message}`);
+      console.log(`error: ${error.message}`);
+    });
+  
+    arweaveCom.on("close", code => {
+      callbackFn(`${code}`);
+      resolve(`${code}`);
+      console.log(`child process exited with code ${code}`);
+    });
+  })
+
 }
 
 
