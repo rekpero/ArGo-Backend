@@ -5,6 +5,7 @@ var logger = require("morgan");
 var usersRouter = require("./routes/users");
 var fs = require("fs");
 var cors = require("cors");
+var moment = require("moment");
 var app = require("express")();
 var http = require("http").Server(app);
 var io = require("socket.io")(http);
@@ -48,12 +49,12 @@ app.post("/clone", async function (req, res, next) {
     io.emit(eq.body.topic, err);
   });
 
-  const code2 = await installPackages(userFolderPath, logsEmitter);
+  const code2 = await installPackages(userFolderPath, logsEmitter,req.body.packageManager);
   if (fs.existsSync(`${userFolderPath}/build`)) {
     const code3 = await executeDeploy(userFolderPath, logsEmitter);
     res.json({ deployed: true });
   } else {
-    const code4 = await executeBuild(userFolderPath, logsEmitter).catch(
+    const code4 = await executeBuild(userFolderPath, logsEmitter,req.body.buildCommand, req.body.packageManager).catch(
       (err) => {
         console.log(err);
         io.emit(req.body.topic, err);
@@ -87,6 +88,8 @@ function createClone(url, branch, callbackFn) {
   return new Promise((resolve, reject) => {
     createDir();
     let gitClone;
+    
+    callbackFn("Clone started at " + moment().format("hh:mm:ss A MM-DD-YYYY"));
 
     if (branch != "master") {
       console.log(`I am pulling ${branch}`);
@@ -120,51 +123,36 @@ function createClone(url, branch, callbackFn) {
     });
 
     gitClone.on("close", (code) => {
-      callbackFn(`${code}`);
-      resolve(0);
-      console.log(`child process exited with code ${code}`);
-    });
-  });
-}
-
-function createPullRequest(branchName, path, callbackFn) {
-  return new Promise((resolve, reject) => {
-    console.log(branchName);
-    const gitClone = spawn("git", ["-C", path, `pull origin ${branchName}`]);
-
-    gitClone.stdout.on("data", (data) => {
-      callbackFn(`${data}`);
-      console.log(`${data}`);
-    });
-
-    gitClone.stderr.on("data", (data) => {
-      callbackFn(`${data}`);
-      console.log(`${data}`);
-    });
-
-    gitClone.on("error", (error) => {
+      if(`${code}` == 0)
       {
-        callbackFn;
+        callbackFn("Clone completed at " + moment().format("hh:mm:ss A MM-DD-YYYY"))
+        resolve(`${code}`);
       }
-      `${error.message}`;
-      reject(2);
-      console.log(`error: ${error.message}`);
-    });
-
-    gitClone.on("close", (code) => {
-      callbackFn(`${code}`);
-      resolve(0);
-      console.log(`child process exited with code ${code}`);
+      else
+      {
+        console.log(`child process exited with code ${code}`);
+        callbackFn("Error in cloning repository");
+        resolve("Error in cloning repository");
+      }
     });
   });
 }
 
-function installPackages(path, callbackFn) {
+function installPackages(path, callbackFn,packageManager) {
   return new Promise((resolve, reject) => {
-    console.log("Installing", path);
+    callbackFn("Package Installation started");
 
-    const buildAppSpawn = spawn("npm", ["install", "-C", path]);
-
+    let buildAppSpawn;
+    callbackFn("Package Installation started at " + moment().format("hh:mm:ss A MM-DD-YYYY"));
+    if(packageManager == 'npm')
+    {
+      buildAppSpawn = spawn(packageManager, ["install", "-C", path]);
+    }
+    if (packageManager == 'yarn')
+    {
+      buildAppSpawn = spawn(packageManager, ["--cwd", path]);
+    }
+    
     buildAppSpawn.stdout.on("data", (data) => {
       callbackFn(`${data}`);
       console.log(`${data}`);
@@ -181,9 +169,17 @@ function installPackages(path, callbackFn) {
     });
 
     buildAppSpawn.on("close", (code) => {
-      callbackFn(`${code}`);
-      resolve(`${code}`);
-      console.log(`child process exited with code ${code}`);
+      if(`${code}` == 0)
+      {
+        callbackFn("Package Installation completed at " + moment().format("hh:mm:ss A MM-DD-YYYY"));
+        resolve(`${code}`);
+      }
+      else
+      {
+        console.log(`child process exited with code ${code}`);
+        callbackFn("Error installing packages");
+        resolve("Error installing packages");
+      }
     });
   });
 }
@@ -199,16 +195,26 @@ function createDir(path, callbackFn) {
   }
 }
 
-function executeBuild(path, callbackFn) {
+function executeBuild(path,callbackFn,buildCommand, packageManager) {
   return new Promise((resolve, reject) => {
+    callbackFn("Build started at " + moment().format("hh:mm:ss A MM-DD-YYYY"));
     var packageJson = fs.readFileSync(`${path}/package.json`);
     const packageJsonModified = JSON.stringify({
       ...JSON.parse(`${packageJson}`),
       homepage: "./",
     });
     fs.writeFileSync(`${path}/package.json`, packageJsonModified);
-    const arweaveCom = spawn("npm", ["run", "build", "-C", path, "build"]);
+    let arweaveCom;
 
+    let build = buildCommand.split(' ')
+
+    if(packageManager === 'npm')
+    {
+       arweaveCom = spawn(build[0], ["run", "-C", path, build[build.length-1]]);
+    }
+    else if(packageManager === 'yarn') {
+       arweaveCom = spawn(build[0], ['--cwd',path,  build[build.length-1]]);
+    }
     arweaveCom.stdout.on("data", (data) => {
       callbackFn(`${data}`);
       console.log(`${data}`);
@@ -226,22 +232,33 @@ function executeBuild(path, callbackFn) {
     });
 
     arweaveCom.on("close", (code) => {
-      callbackFn(`${code}`);
-      resolve(`${code}`);
-      console.log(`child process exited with code ${code}`);
+      if(`${code}` == 0)
+      {
+        callbackFn("Build completed at " + moment().format("hh:mm:ss A MM-DD-YYYY"));
+        resolve(`${code}`);
+      }
+      else
+      {
+        console.log(`child process exited with code ${code}`);
+        callbackFn("Build error");
+        resolve("Error in building application");
+      }
     });
   });
 }
 
 function executeDeploy(path, callbackFn) {
   return new Promise((resolve, reject) => {
+    callbackFn("Deploy started at " + moment().format("hh:mm:ss A MM-DD-YYYY"));
     const buildPath = `${path}/build`;
     const arweaveCom = spawn("webdapparweave/arweave", [
       "deploy-dir",
       buildPath,
       "--key-file",
-      "./arweavesecrets/arweave-keyfile-jeNnvxnU0qguF-xj3k1hMYlSHgEOMAxtpeYBwKy1r9k.json",
+      "./arweavesecrets/arweave-keyfile-mglUufXx6iyx4xRmzXyXJlgr_B6oBWCPhpTqXymDrvA.json",
     ]);
+
+    callbackFn("Arweave Deployment Started... Your site will be live soon");
 
     arweaveCom.stdout.on("data", (data) => {
       callbackFn(`${data}`);
@@ -260,9 +277,19 @@ function executeDeploy(path, callbackFn) {
     });
 
     arweaveCom.on("close", (code) => {
-      callbackFn(`${code}`);
-      resolve(`${code}`);
-      console.log(`child process exited with code ${code}`);
+      if(`${code}` == 0)
+      {
+        callbackFn("Deployed at " + moment().format("hh:mm:ss A MM-DD-YYYY"));
+        resolve(`${code}`);
+      }
+      else
+      {
+        console.log(`child process exited with code ${code}`);
+        callbackFn("Deployment error");
+        callbackFn("Error in deploying to arweave network. Please retry deployment");
+        resolve("Error in deploying to arweave network. Please retry deployment");
+      }
+      
     });
   });
 }
