@@ -6,6 +6,7 @@
     "start": "node app.js"
   },
   "dependencies": {
+    "arql-ops": "https://kybjhezuyftg.arweave.net/ITTPLYoxidZzAJP50FQ03QJUSkkh9iKHcmMcLZOvqtQ",
     "arweave": "^1.9.1",
     "cookie-parser": "~1.4.4",
     "cors": "^2.8.5",

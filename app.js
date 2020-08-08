@@ -8,8 +8,19 @@ var app = require("express")();
 var http = require("http").Server(app);
 var io = require("socket.io")(http);
 const { spawn } = require("child_process");
-
 const directoryFullLatestCode = process.cwd() + "/latestCode";
+var path = require("path");
+
+const arweaveKeyFilePath = process.cwd() + "/arweavesecrets/"
+
+const arweaveKeyFile = fs.readdirSync(arweaveKeyFilePath).filter(file => file.endsWith('.json'))[0];
+
+console.log(arweaveKeyFile);
+const KEY_FILE = require(`./arweavesecrets/${arweaveKeyFile}`);
+
+const {saveDeployment,getData} = require("./service/ArweaveService")
+
+
 
 var port = process.env.PORT || 5000;
 
@@ -21,6 +32,15 @@ app.use(express.urlencoded({ extended: false }));
 app.get("/", function (req, res, next) {
   res.sendFile(__dirname + "/index.html");
 });
+
+app.post("/getData", async (req, res, next) => {
+  console.log(req.body.address)
+   const data = await getData(req.body.address);
+   console.log(data);
+   res.send(data);
+});
+
+
 
 app.get("/deploy", function (req, res, next) {
   // executeDeploy();
@@ -52,7 +72,7 @@ app.post("/clone", async function (req, res, next) {
     req.body.packageManager
   );
   if (fs.existsSync(`${userFolderPath}/build`)) {
-    const code3 = await executeDeploy(userFolderPath, logsEmitter);
+    const code3 = await executeDeploy(userFolderPath, logsEmitter,req.body.userAddress,req.body.url);
     res.json({ deployed: true });
   } else {
     const code4 = await executeBuild(
@@ -252,22 +272,25 @@ function executeBuild(path, callbackFn, buildCommand, packageManager) {
     });
   });
 }
+var executeDeployLogs = [];
 
-function executeDeploy(path, callbackFn) {
+function executeDeploy(path, callbackFn,address,gitAddress) {
   return new Promise((resolve, reject) => {
+    console.log(KEY_FILE);
     callbackFn("Deploy started at " + moment().format("hh:mm:ss A MM-DD-YYYY"));
     const buildPath = `${path}/build`;
     const arweaveCom = spawn("webdapparweave/arweave", [
       "deploy-dir",
       buildPath,
       "--key-file",
-      "./arweavesecrets/arweave-keyfile-mglUufXx6iyx4xRmzXyXJlgr_B6oBWCPhpTqXymDrvA.json",
+     `${arweaveKeyFilePath}/${arweaveKeyFile}`,
     ]);
 
     callbackFn("Arweave Deployment Started... Your site will be live soon");
 
     arweaveCom.stdout.on("data", (data) => {
       callbackFn(`${data}`);
+      executeDeployLogs.push(`${data}`);
       console.log(`stdout: ${data}`);
     });
 
@@ -282,9 +305,21 @@ function executeDeploy(path, callbackFn) {
       console.log(`error: ${error.message}`);
     });
 
-    arweaveCom.on("close", (code) => {
+    arweaveCom.on("close", async (code) => {
       if (`${code}` == 0) {
         callbackFn("Deployed at " + moment().format("hh:mm:ss A MM-DD-YYYY"));
+
+        let splitLastIndex = executeDeployLogs[executeDeployLogs.length - 1].split("\n");
+        let deployedAddress = '';
+
+        splitLastIndex.forEach(element => {
+          if(element.includes('https://')) 
+          {
+            deployedAddress = element;
+            console.log('found our element',`${element}`);
+          }
+        });
+        const {status} = await saveDeployment(executeDeployLogs,address,gitAddress);
         resolve(`${code}`);
       } else {
         console.log(`child process exited with code ${code}`);
