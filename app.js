@@ -10,6 +10,7 @@ var io = require("socket.io")(http);
 const { spawn } = require("child_process");
 const directoryFullLatestCode = process.cwd() + "/latestCode";
 var path = require("path");
+const Tick = require("./utils/tick");
 
 const arweaveKeyFilePath = process.cwd() + "/arweavesecrets/"
 
@@ -19,8 +20,6 @@ console.log(arweaveKeyFile);
 const KEY_FILE = require(`./arweavesecrets/${arweaveKeyFile}`);
 
 const {saveDeployment,getData} = require("./service/ArweaveService")
-
-
 
 var port = process.env.PORT || 5000;
 
@@ -53,16 +52,15 @@ app.get("/clone", function (req, res, next) {
 app.post("/clone", async function (req, res, next) {
   const splitUrl = req.body.url.split("/");
   const folderName = splitUrl[splitUrl.length - 1].split(".")[0];
-  console.log(folderName);
-
   var userFolderPath = `${directoryFullLatestCode}/${folderName}`;
   const logsEmitter = logsEmitterFn(req.body.topic);
+  const tick = new Tick();
+  tick.start();
   const cloneStatus = await createClone(
     req.body.url,
     req.body.branch,
     logsEmitter
   ).catch((err) => {
-    console.log(err);
     io.emit(eq.body.topic, err);
   });
 
@@ -81,16 +79,13 @@ app.post("/clone", async function (req, res, next) {
       req.body.buildCommand,
       req.body.packageManager
     ).catch((err) => {
-      console.log(err);
       io.emit(req.body.topic, err);
     });
-
     const code5 = await executeDeploy(userFolderPath, logsEmitter).catch(
       async (err) => {
         console.log(err);
         io.emit(req.body.topic, err);
         await executeDeploy(userFolderPath, logsEmitter).catch((err) => {
-          console.log(err);
           io.emit(
             req.body.topic,
             "Second Attempt also failed. Please check your network connection or try again later"
@@ -274,7 +269,7 @@ function executeBuild(path, callbackFn, buildCommand, packageManager) {
 }
 var executeDeployLogs = [];
 
-function executeDeploy(path, callbackFn,address,gitAddress) {
+function executeDeploy(path, callbackFn,address,gitAddress,tick) {
   return new Promise((resolve, reject) => {
     console.log(KEY_FILE);
     callbackFn("Deploy started at " + moment().format("hh:mm:ss A MM-DD-YYYY"));
@@ -319,7 +314,8 @@ function executeDeploy(path, callbackFn,address,gitAddress) {
             console.log('found our element',`${element}`);
           }
         });
-        const {status} = await saveDeployment(executeDeployLogs,address,gitAddress);
+        let buildTime = tick.end();
+        const {status} = await saveDeployment(executeDeployLogs,address,gitAddress,buildTime);
         resolve(`${code}`);
       } else {
         console.log(`child process exited with code ${code}`);

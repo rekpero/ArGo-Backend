@@ -24,13 +24,14 @@ console.log(arweaveKeyFile);
 const KEY = require(`../arweavesecrets/${arweaveKeyFile}`);
 
 
-const saveDeployment = async (logs,address,webAddress,gitAddress) =>  {
+const saveDeployment = async (logs,address,webAddress,gitAddress,buildTime) =>  {
     const transaction = await arweave.createTransaction(
       { 
         data: JSON.stringify(logs)
       },
       KEY
     );
+    transaction.addTag("buildTime",buildTime);
     transaction.addTag("gitAddress",gitAddress);
     transaction.addTag("logs",logs);
     transaction.addTag("useraddress",address)
