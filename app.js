@@ -11,14 +11,16 @@ const { spawn } = require("child_process");
 const directoryFullLatestCode = process.cwd() + "/latestCode";
 const Tick = require("./utils/tick");
 
-const arweaveKeyFilePath = process.cwd() + "/arweavesecrets/"
+const arweaveKeyFilePath = process.cwd() + "/arweavesecrets/";
 
-const arweaveKeyFile = fs.readdirSync(arweaveKeyFilePath).filter(file => file.endsWith('.json'))[0];
+const arweaveKeyFile = fs
+  .readdirSync(arweaveKeyFilePath)
+  .filter((file) => file.endsWith(".json"))[0];
 
 console.log(arweaveKeyFile);
 const KEY_FILE = require(`./arweavesecrets/${arweaveKeyFile}`);
 
-const { saveDeployment, getData } = require("./service/ArweaveService")
+const { saveDeployment, getData } = require("./service/ArweaveService");
 
 var port = process.env.PORT || 5000;
 
@@ -32,13 +34,11 @@ app.get("/", function (req, res, next) {
 });
 
 app.post("/getData", async (req, res, next) => {
-  console.log(req.body.address)
+  console.log(req.body.address);
   const data = await getData(req.body.address);
   console.log(data);
   res.send(data);
 });
-
-
 
 app.get("/deploy", function (req, res, next) {
   // executeDeploy();
@@ -69,8 +69,17 @@ app.post("/clone", async function (req, res, next) {
     req.body.packageManager
   );
   if (fs.existsSync(`${userFolderPath}/build`)) {
-    let {deployed}  = await redeploy(userFolderPath, logsEmitter, req.body.userAddress, req.body.url);
-    res.json({ deployed })
+    let { deployed } = await redeploy(
+      userFolderPath,
+      logsEmitter,
+      req.body.userAddress,
+      req.body.url,
+      req.body.branch,
+      req.body.buildCommand,
+      req.body.packageManager,
+      tick
+    );
+    res.json({ deployed });
   } else {
     const code4 = await executeBuild(
       userFolderPath,
@@ -80,26 +89,58 @@ app.post("/clone", async function (req, res, next) {
     ).catch((err) => {
       io.emit(req.body.topic, err);
     });
-    let {deployed}  = await redeploy(userFolderPath, logsEmitter,req.body.userAddress, req.body.url)
-    res.json({ deployed });
+    let { deployed, buildTime } = await redeploy(
+      userFolderPath,
+      logsEmitter,
+      req.body.userAddress,
+      req.body.url,
+      req.body.branch,
+      req.body.buildCommand,
+      req.body.packageManager,
+      tick
+    );
+    res.json({ deployed, buildTime });
   }
 });
 
-const redeploy = async (userFolderPath, logsEmitter,userAddress, url) => {
-  var {status}  = await executeDeploy(userFolderPath, logsEmitter,userAddress, url);
-  if(status)
-  { 
-    return {deployed: true};
-  }
-  else
-  { 
-    for(let i = 0; i <10 ; i++)
-    {
-      await redeploy(userFolderPath, logsEmitter,userAddress, url);
+const redeploy = async (
+  userFolderPath,
+  logsEmitter,
+  userAddress,
+  url,
+  branch,
+  buildCommand,
+  packageManager,
+  tick
+) => {
+  var { status, buildTime } = await executeDeploy(
+    userFolderPath,
+    logsEmitter,
+    userAddress,
+    url,
+    branch,
+    buildCommand,
+    packageManager,
+    tick
+  );
+  if (status) {
+    return { deployed: true, buildTime };
+  } else {
+    for (let i = 0; i < 10; i++) {
+      await redeploy(
+        userFolderPath,
+        logsEmitter,
+        userAddress,
+        url,
+        branch,
+        buildCommand,
+        packageManager,
+        tick
+      );
     }
   }
-  return {deployed: false};
-}
+  return { deployed: false };
+};
 
 const logsEmitterFn = (topic) => {
   return (data) => {
@@ -166,7 +207,7 @@ function installPackages(path, callbackFn, packageManager) {
     let buildAppSpawn;
     callbackFn(
       "Package Installation started at " +
-      moment().format("hh:mm:ss A MM-DD-YYYY")
+        moment().format("hh:mm:ss A MM-DD-YYYY")
     );
     if (packageManager == "npm") {
       buildAppSpawn = spawn(packageManager, ["install", "-C", path]);
@@ -194,7 +235,7 @@ function installPackages(path, callbackFn, packageManager) {
       if (`${code}` == 0) {
         callbackFn(
           "Package Installation completed at " +
-          moment().format("hh:mm:ss A MM-DD-YYYY")
+            moment().format("hh:mm:ss A MM-DD-YYYY")
         );
         resolve(`${code}`);
       } else {
@@ -272,7 +313,16 @@ function executeBuild(path, callbackFn, buildCommand, packageManager) {
 }
 var executeDeployLogs = [];
 
-function executeDeploy(path, callbackFn, address, gitAddress, tick) {
+function executeDeploy(
+  path,
+  callbackFn,
+  address,
+  gitUrl,
+  branch,
+  buildCommand,
+  packageManager,
+  tick
+) {
   return new Promise((resolve, reject) => {
     console.log(KEY_FILE);
     callbackFn("Deploy started at " + moment().format("hh:mm:ss A MM-DD-YYYY"));
@@ -307,26 +357,33 @@ function executeDeploy(path, callbackFn, address, gitAddress, tick) {
       if (`${code}` == 0) {
         callbackFn("Deployed at " + moment().format("hh:mm:ss A MM-DD-YYYY"));
 
-        let splitLastIndex = executeDeployLogs[executeDeployLogs.length - 1].split("\n");
-        splitLastIndex.forEach(element => {
-          if (element.includes('https://')) {
+        let splitLastIndex = executeDeployLogs[
+          executeDeployLogs.length - 1
+        ].split("\n");
+        splitLastIndex.forEach((element) => {
+          if (element.includes("https://")) {
             deployedAddress = element;
           }
         });
         let buildTime = tick.end();
-        const { status } = await saveDeployment(executeDeployLogs, address, gitAddress, buildTime);
-        resolve(
-          { status: true }
+        const { status } = await saveDeployment(
+          executeDeployLogs,
+          address,
+          deployedAddress,
+          gitUrl,
+          branch,
+          buildCommand,
+          packageManager,
+          buildTime
         );
+        resolve({ status, buildTime });
       } else {
         console.log(`child process exited with code ${code}`);
         callbackFn("Deployment error");
         callbackFn(
           "Error in deploying to arweave network. Please retry deployment"
         );
-        resolve(
-          { status: false }
-        );
+        resolve({ status: false, buildTime: 0 });
       }
     });
   });
