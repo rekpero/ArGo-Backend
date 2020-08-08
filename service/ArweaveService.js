@@ -17,10 +17,8 @@ const arweave = Arweave.init({
   
 const arweaveKeyFilePath = path.resolve(process.cwd() + "/arweavesecrets/") 
 
-console.log(arweaveKeyFilePath);
 const arweaveKeyFile = fs.readdirSync(arweaveKeyFilePath).filter(file => file.endsWith('.json'))[0];
 
-console.log(arweaveKeyFile);
 const KEY = require(`../arweavesecrets/${arweaveKeyFile}`);
 
 

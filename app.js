@@ -9,7 +9,6 @@ var http = require("http").Server(app);
 var io = require("socket.io")(http);
 const { spawn } = require("child_process");
 const directoryFullLatestCode = process.cwd() + "/latestCode";
-var path = require("path");
 const Tick = require("./utils/tick");
 
 const arweaveKeyFilePath = process.cwd() + "/arweavesecrets/"
@@ -19,7 +18,7 @@ const arweaveKeyFile = fs.readdirSync(arweaveKeyFilePath).filter(file => file.en
 console.log(arweaveKeyFile);
 const KEY_FILE = require(`./arweavesecrets/${arweaveKeyFile}`);
 
-const {saveDeployment,getData} = require("./service/ArweaveService")
+const { saveDeployment, getData } = require("./service/ArweaveService")
 
 var port = process.env.PORT || 5000;
 
@@ -34,9 +33,9 @@ app.get("/", function (req, res, next) {
 
 app.post("/getData", async (req, res, next) => {
   console.log(req.body.address)
-   const data = await getData(req.body.address);
-   console.log(data);
-   res.send(data);
+  const data = await getData(req.body.address);
+  console.log(data);
+  res.send(data);
 });
 
 
@@ -70,8 +69,8 @@ app.post("/clone", async function (req, res, next) {
     req.body.packageManager
   );
   if (fs.existsSync(`${userFolderPath}/build`)) {
-    const code3 = await executeDeploy(userFolderPath, logsEmitter,req.body.userAddress,req.body.url);
-    res.json({ deployed: true });
+    let {deployed}  = await redeploy(userFolderPath, logsEmitter, req.body.userAddress, req.body.url);
+    res.json({ deployed })
   } else {
     const code4 = await executeBuild(
       userFolderPath,
@@ -81,22 +80,26 @@ app.post("/clone", async function (req, res, next) {
     ).catch((err) => {
       io.emit(req.body.topic, err);
     });
-    const code5 = await executeDeploy(userFolderPath, logsEmitter).catch(
-      async (err) => {
-        console.log(err);
-        io.emit(req.body.topic, err);
-        await executeDeploy(userFolderPath, logsEmitter).catch((err) => {
-          io.emit(
-            req.body.topic,
-            "Second Attempt also failed. Please check your network connection or try again later"
-          );
-          res.json({ deployed: false });
-        });
-      }
-    );
-    res.json({ deployed: true });
+    let {deployed}  = await redeploy(userFolderPath, logsEmitter,req.body.userAddress, req.body.url)
+    res.json({ deployed });
   }
 });
+
+const redeploy = async (userFolderPath, logsEmitter,userAddress, url) => {
+  var {status}  = await executeDeploy(userFolderPath, logsEmitter,userAddress, url);
+  if(status)
+  { 
+    return {deployed: true};
+  }
+  else
+  { 
+    for(let i = 0; i <10 ; i++)
+    {
+      await redeploy(userFolderPath, logsEmitter,userAddress, url);
+    }
+  }
+  return {deployed: false};
+}
 
 const logsEmitterFn = (topic) => {
   return (data) => {
@@ -163,7 +166,7 @@ function installPackages(path, callbackFn, packageManager) {
     let buildAppSpawn;
     callbackFn(
       "Package Installation started at " +
-        moment().format("hh:mm:ss A MM-DD-YYYY")
+      moment().format("hh:mm:ss A MM-DD-YYYY")
     );
     if (packageManager == "npm") {
       buildAppSpawn = spawn(packageManager, ["install", "-C", path]);
@@ -191,7 +194,7 @@ function installPackages(path, callbackFn, packageManager) {
       if (`${code}` == 0) {
         callbackFn(
           "Package Installation completed at " +
-            moment().format("hh:mm:ss A MM-DD-YYYY")
+          moment().format("hh:mm:ss A MM-DD-YYYY")
         );
         resolve(`${code}`);
       } else {
@@ -269,7 +272,7 @@ function executeBuild(path, callbackFn, buildCommand, packageManager) {
 }
 var executeDeployLogs = [];
 
-function executeDeploy(path, callbackFn,address,gitAddress,tick) {
+function executeDeploy(path, callbackFn, address, gitAddress, tick) {
   return new Promise((resolve, reject) => {
     console.log(KEY_FILE);
     callbackFn("Deploy started at " + moment().format("hh:mm:ss A MM-DD-YYYY"));
@@ -278,7 +281,7 @@ function executeDeploy(path, callbackFn,address,gitAddress,tick) {
       "deploy-dir",
       buildPath,
       "--key-file",
-     `${arweaveKeyFilePath}/${arweaveKeyFile}`,
+      `${arweaveKeyFilePath}/${arweaveKeyFile}`,
     ]);
 
     callbackFn("Arweave Deployment Started... Your site will be live soon");
@@ -305,18 +308,16 @@ function executeDeploy(path, callbackFn,address,gitAddress,tick) {
         callbackFn("Deployed at " + moment().format("hh:mm:ss A MM-DD-YYYY"));
 
         let splitLastIndex = executeDeployLogs[executeDeployLogs.length - 1].split("\n");
-        let deployedAddress = '';
-
         splitLastIndex.forEach(element => {
-          if(element.includes('https://')) 
-          {
+          if (element.includes('https://')) {
             deployedAddress = element;
-            console.log('found our element',`${element}`);
           }
         });
         let buildTime = tick.end();
-        const {status} = await saveDeployment(executeDeployLogs,address,gitAddress,buildTime);
-        resolve(`${code}`);
+        const { status } = await saveDeployment(executeDeployLogs, address, gitAddress, buildTime);
+        resolve(
+          { status: true }
+        );
       } else {
         console.log(`child process exited with code ${code}`);
         callbackFn("Deployment error");
@@ -324,7 +325,7 @@ function executeDeploy(path, callbackFn,address,gitAddress,tick) {
           "Error in deploying to arweave network. Please retry deployment"
         );
         resolve(
-          "Error in deploying to arweave network. Please retry deployment"
+          { status: false }
         );
       }
     });
