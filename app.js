@@ -8,9 +8,10 @@ var app = require("express")();
 var http = require("http").Server(app);
 var io = require("socket.io")(http);
 const { spawn } = require("child_process");
-const directoryFullLatestCode = process.cwd() + "/latestCode";
 const Tick = require("./utils/tick");
+const Logs = require("./utils/logs");
 
+const directoryFullLatestCode = process.cwd() + "/latestCode";
 const arweaveKeyFilePath = process.cwd() + "/arweavesecrets/";
 
 const arweaveKeyFile = fs
@@ -25,7 +26,7 @@ const { saveDeployment, getData } = require("./service/ArweaveService");
 var port = process.env.PORT || 5000;
 
 app.use(cors());
-app.use(logger("dev"));
+// app.use(logger("dev"));
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
@@ -52,7 +53,8 @@ app.post("/clone", async function (req, res, next) {
   const splitUrl = req.body.url.split("/");
   const folderName = splitUrl[splitUrl.length - 1].split(".")[0];
   var userFolderPath = `${directoryFullLatestCode}/${folderName}`;
-  const logsEmitter = logsEmitterFn(req.body.topic);
+  const logs = new Logs();
+  const logsEmitter = logsEmitterFn(req.body.topic, logs);
   const tick = new Tick();
   tick.start();
   const cloneStatus = await createClone(
@@ -77,9 +79,10 @@ app.post("/clone", async function (req, res, next) {
       req.body.branch,
       req.body.buildCommand,
       req.body.packageManager,
-      tick
+      tick,
+      logs
     );
-    res.json({ deployed });
+    res.status(200).json({ deployed });
   } else {
     const code4 = await executeBuild(
       userFolderPath,
@@ -97,9 +100,10 @@ app.post("/clone", async function (req, res, next) {
       req.body.branch,
       req.body.buildCommand,
       req.body.packageManager,
-      tick
+      tick,
+      logs
     );
-    res.json({ deployed, buildTime });
+    res.status(200).json({ deployed, buildTime });
   }
 });
 
@@ -111,7 +115,8 @@ const redeploy = async (
   branch,
   buildCommand,
   packageManager,
-  tick
+  tick,
+  logs
 ) => {
   var { status, buildTime } = await executeDeploy(
     userFolderPath,
@@ -121,29 +126,41 @@ const redeploy = async (
     branch,
     buildCommand,
     packageManager,
-    tick
+    tick,
+    logs
   );
+  console.log("I am main status", status);
   if (status) {
     return { deployed: true, buildTime };
-  } else {
-    for (let i = 0; i < 10; i++) {
-      await redeploy(
-        userFolderPath,
-        logsEmitter,
-        userAddress,
-        url,
-        branch,
-        buildCommand,
-        packageManager,
-        tick
-      );
-    }
+    // } else {
+    //   for (let i = 0; i < 10; i++) {
+    //     logsEmitter("I am redeploying #" + (i + 1));
+    //     await redeploy(
+    //       userFolderPath,
+    //       logsEmitter,
+    //       userAddress,
+    //       url,
+    //       branch,
+    //       buildCommand,
+    //       packageManager,
+    //       tick,
+    //       logs
+    //     );
+    //   }
   }
   return { deployed: false };
 };
 
-const logsEmitterFn = (topic) => {
+const logsEmitterFn = (topic, logs) => {
   return (data) => {
+    `${data}`.split("\n").forEach((line) => {
+      if (line.trim()) {
+        logs.addLogs({
+          log: line,
+          time: moment().format("hh:mm:ss A MM-DD-YYYY"),
+        });
+      }
+    });
     io.emit(topic, `${data}`);
   };
 };
@@ -311,7 +328,6 @@ function executeBuild(path, callbackFn, buildCommand, packageManager) {
     });
   });
 }
-var executeDeployLogs = [];
 
 function executeDeploy(
   path,
@@ -321,7 +337,8 @@ function executeDeploy(
   branch,
   buildCommand,
   packageManager,
-  tick
+  tick,
+  logs
 ) {
   return new Promise((resolve, reject) => {
     console.log(KEY_FILE);
@@ -338,7 +355,6 @@ function executeDeploy(
 
     arweaveCom.stdout.on("data", (data) => {
       callbackFn(`${data}`);
-      executeDeployLogs.push(`${data}`);
       console.log(`stdout: ${data}`);
     });
 
@@ -357,26 +373,29 @@ function executeDeploy(
       if (`${code}` == 0) {
         callbackFn("Deployed at " + moment().format("hh:mm:ss A MM-DD-YYYY"));
 
-        let splitLastIndex = executeDeployLogs[
-          executeDeployLogs.length - 1
-        ].split("\n");
-        splitLastIndex.forEach((element) => {
-          if (element.includes("https://")) {
-            deployedAddress = element;
-          }
-        });
-        let buildTime = tick.end();
+        let allLogs = logs.getLogs();
+        console.log(allLogs);
+        allLogs
+          .map((log) => log.log)
+          .forEach((element) => {
+            if (element.includes("https://")) {
+              deployedAddress = element;
+            }
+          });
+        let { buildTime, startTime, endTime } = tick.end();
         const { status } = await saveDeployment(
-          executeDeployLogs,
+          allLogs,
           address,
           deployedAddress,
           gitUrl,
           branch,
           buildCommand,
           packageManager,
-          buildTime
+          buildTime,
+          startTime,
+          endTime
         );
-        resolve({ status, buildTime });
+        resolve({ status: true, buildTime });
       } else {
         console.log(`child process exited with code ${code}`);
         callbackFn("Deployment error");

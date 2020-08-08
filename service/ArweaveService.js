@@ -30,7 +30,9 @@ const saveDeployment = async (
   branch,
   buildCommand,
   packageManager,
-  buildTime
+  buildTime,
+  startTime,
+  endTime
 ) => {
   const transaction = await arweave.createTransaction(
     {
@@ -49,6 +51,8 @@ const saveDeployment = async (
   );
   transaction.addTag("Content-Type", "application/json");
   transaction.addTag("buildTime", buildTime);
+  transaction.addTag("startTime", startTime);
+  transaction.addTag("endTime", endTime);
   transaction.addTag("gitUrl", gitUrl);
   transaction.addTag("userAddress", address);
   transaction.addTag("deployedLink", webAddress);
@@ -95,6 +99,7 @@ const getData = async (address) => {
             tx_row[key] = value;
           }
         });
+        tx_row["id"] = id;
         console.log(tx_row);
         return tx_row;
       }
