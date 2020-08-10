@@ -4,7 +4,7 @@ var logger = require("morgan");
 var fs = require("fs");
 var cors = require("cors");
 var moment = require("moment");
-var app = require("express")();
+var app = express();
 var http = require("http").Server(app);
 var io = require("socket.io")(http);
 const { spawn } = require("child_process");
@@ -71,7 +71,7 @@ app.post("/clone", async function (req, res, next) {
     req.body.packageManager
   );
   if (fs.existsSync(`${userFolderPath}/build`)) {
-    let { deployed } = await redeploy(
+    let { deployed, buildTime } = await redeploy(
       userFolderPath,
       logsEmitter,
       req.body.userAddress,
@@ -82,7 +82,7 @@ app.post("/clone", async function (req, res, next) {
       tick,
       logs
     );
-    res.status(200).json({ deployed });
+    res.status(200).json({ deployed, buildTime });
   } else {
     const code4 = await executeBuild(
       userFolderPath,
