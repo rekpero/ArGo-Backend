@@ -3,7 +3,7 @@
 A click away from arweave permaweb
 ## About Argo
 
-Product for deploying js web apps to the arweave network, for maintaining web app versions and tracking logs at one place.
+Product for deploying js web apps to the arweave network, for maintaining web app versions and tracking logs in one place.
 Deploy your site by providing minimum details
 
 ## Installation
