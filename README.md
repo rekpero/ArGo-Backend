@@ -15,6 +15,11 @@ Follow these easy steps to run ArGo in your machine
 
 ArGo backend App will start running on localhost
 
-# Demo Link
+## Note
+To run ArGo developer has to clone backend which you can find here: 
+https://github.com/rekpero/ArGo
+To Run backend seperately follow the README.md
+
+## Demo Link
 To see the deomo of the ArGo you visit at:
 https://www.youtube.com/watch?v=68SwcLDteTM
